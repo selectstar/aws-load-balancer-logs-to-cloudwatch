@@ -354,6 +354,7 @@ exports.handler = async (event, context) => {
         continue;
       }
     }
+    batches = [];
     console.log(`Successfully put ${count} events in ${batch_count} batches`);
   }
 
