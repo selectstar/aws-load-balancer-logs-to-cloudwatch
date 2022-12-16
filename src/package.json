@@ -18,6 +18,6 @@
   "homepage": "https://github.com/rupertbg/aws-load-balancer-logs-to-cloudwatch#readme",
   "dependencies": {
     "@sentry/serverless": "^7.27.0",
-    "aws-sdk": "^2.814.0"
+    "aws-sdk": "^2.1277.0"
   }
 }
