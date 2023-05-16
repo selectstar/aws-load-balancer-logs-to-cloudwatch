@@ -173,6 +173,29 @@ async function createLogGroupIfNotExists() {
   }
 }
 
+async function createLogStreamIfNotExists(logStreamName) {
+    console.log(`Checking Log Stream ${logGroupName} exists`);
+
+    const cwlDescribeStreams = await cloudWatchLogs
+    .describeLogStreams({
+      logGroupName,
+      logStreamNamePrefix: logStreamName,
+    })
+    .promise();
+
+    if (!cwlDescribeStreams.logStreams[0]) {
+        console.log(`Creating Log Stream ${logGroupName}/${logStreamName}`);
+        await cloudWatchLogs
+        .createLogStream({
+            logGroupName,
+            logStreamName,
+        })
+        .promise();
+    } else {
+        console.log(`Log Stream ${logGroupName} exists`);
+    }
+}
+
 async function unpackLogData(s3object) {
   console.log(`Unpacking log data for ${loadBalancerType} load balancer`);
   if (loadBalancerType === "classic") return s3object.Body.toString("ascii");
@@ -217,39 +240,6 @@ function parseLine(line) {
   return parsed;
 }
 
-async function getLogStreamSequenceToken(logStreamName) {
-  console.log(`Checking Log Streams ${logGroupName}/${logStreamName}`);
-  let currentStream;
-  const cwlDescribeStreams = await cloudWatchLogs
-    .describeLogStreams({
-      logGroupName,
-      logStreamNamePrefix: logStreamName,
-    })
-    .promise();
-
-  if (cwlDescribeStreams.logStreams[0]) {
-    console.log(`Log Stream ${logGroupName}/${logStreamName} exist. Reusing`);
-    currentStream = cwlDescribeStreams.logStreams[0];
-  } else {
-    console.log(`Creating Log Stream ${logGroupName}/${logStreamName}`);
-    await cloudWatchLogs
-      .createLogStream({
-        logGroupName,
-        logStreamName,
-      })
-      .promise();
-    const cwlDescribeCreatedStream = await cloudWatchLogs
-      .describeLogStreams({
-        logGroupName: logGroupName,
-        logStreamNamePrefix: logStreamName,
-      })
-      .promise();
-    currentStream = cwlDescribeCreatedStream.logStreams[0];
-  }
-
-  return currentStream.uploadSequenceToken;
-}
-
 exports.handler = async (event, context) => {
   const logStreamName = context.logStreamName;
   var batches = [];
@@ -258,7 +248,7 @@ exports.handler = async (event, context) => {
 
   await createLogGroupIfNotExists();
 
-  let sequenceToken = await getLogStreamSequenceToken(logStreamName);
+  await createLogStreamIfNotExists(logStreamName);
 
   function readLines(line) {
     // mutate batch, batches, batch_size
@@ -298,13 +288,11 @@ exports.handler = async (event, context) => {
   }
 
   async function sendBatch(logEvents) {
-    // mutate sequenceToken
     console.log(`Sending batch to ${logStreamName}`);
     const putLogEventParams = {
       logEvents,
       logGroupName,
       logStreamName,
-      sequenceToken,
     };
 
     // sort the events in ascending order by timestamp as required by PutLogEvents
@@ -331,7 +319,6 @@ exports.handler = async (event, context) => {
         `Failed in putting events (expiredLogEventEndIndex=${cwPutLogEvents.rejectedLogEventsInfo?.expiredLogEventEndIndex},tooNewLogEventStartIndex=${cwPutLogEvents.rejectedLogEventsInfo?.tooNewLogEventStartIndex},tooOldLogEventEndIndex=${cwPutLogEvents.rejectedLogEventsInfo?.tooOldLogEventEndIndex}`
       );
     }
-    sequenceToken = cwPutLogEvents.nextSequenceToken;
   }
 
   async function sendBatches() {
